@@ -2,7 +2,6 @@ import _ from 'lodash'
 import PropTypes from 'prop-types'
 import React, {Component} from 'react'
 import {connect} from 'react-redux'
-import Scroll from 'react-scroll'
 import {Trans} from '@lingui/react'
 import withSizes from 'react-sizes'
 import {
@@ -11,8 +10,6 @@ import {
 	Header,
 	Loader,
 	Menu,
-	Segment,
-	Sticky,
 } from 'semantic-ui-react'
 
 import {getFflogsEvents} from 'api'
@@ -25,8 +22,22 @@ import Parser from 'parser/core/Parser'
 import {fetchReportIfNeeded, setGlobalError} from 'store/actions'
 import {compose} from 'utilities'
 
+import ResultSegment from './ResultSegment'
+import SegmentLinkItem from './SegmentLinkItem'
+import {SegmentPositionProvider} from './SegmentPositionContext'
+
 import styles from './Analyse.module.css'
 import fflogsLogo from './fflogs.png'
+
+/**
+ * @template T
+ * @typedef {Object} UnloadedModuleMeta
+ * @prop {() => Promise<T>} modules
+ * @prop {React.ReactNode|null} description
+ * @prop {TODO} supportedPatches
+ * @prop {ReadonlyArray<TODO>} contributors
+ * @prop {ReadonlyArray<TODO>} changelog
+ */
 
 class Analyse extends Component {
 	// TODO: I should really make a definitions file for this shit
@@ -47,20 +58,17 @@ class Analyse extends Component {
 		showMenu: PropTypes.bool.isRequired,
 	}
 
-	stickyContext = null
-
+	/** @type {ReadonlyArray<import('parser/core/Parser').ParserResult>|null} */
 	resultCache = null
 
 	constructor(props) {
 		super(props)
 
 		this.state = {
+			/** @type {import('parser/core/Parser').default|null} */
 			parser: null,
 			complete: false,
-			activeSegment: 0,
 		}
-
-		this.stickyContext = React.createRef()
 	}
 
 	componentDidMount() {
@@ -150,27 +158,21 @@ class Analyse extends Component {
 		// Build the base parser instance
 		const parser = new Parser(report, fight, combatant)
 
-		// Look up any modules we might want (inc. core)
-		const modules = {
-			core: AVAILABLE_MODULES.CORE,
-			job: AVAILABLE_MODULES.JOBS[combatant.type],
-			boss: AVAILABLE_MODULES.BOSSES[fight.boss],
-		}
-
-		// Load any modules we've got
-		const modulePromises = []
-		const loadOrder = ['core', 'boss', 'job']
-		for (const group of loadOrder) {
-			if (!modules[group]) { continue }
-			modulePromises.push(modules[group]())
-		}
+		const modules = [
+			this.normaliseModuleMeta(AVAILABLE_MODULES.CORE),
+			this.normaliseModuleMeta(AVAILABLE_MODULES.BOSSES[fight.boss]),
+			this.normaliseModuleMeta(AVAILABLE_MODULES.JOBS[combatant.type]),
+		]
 
 		// If this throws, then there was a deploy between page load and this call. Tell them to refresh.
 		try {
-			(await Promise.all(modulePromises)).forEach(({default: loadedModules}, index) => {
-				modules[loadOrder[index]] = loadedModules
-				parser.addModules(loadedModules)
-			})
+			(await Promise.all(modules.map(meta => meta.modules())))
+				.forEach(({default: loadedModules = []}, index) => {
+					parser.addMeta({
+						...modules[index],
+						loadedModules,
+					})
+				})
 		} catch (error) {
 			if (process.env.NODE_ENV === 'development') {
 				throw error
@@ -196,6 +198,27 @@ class Analyse extends Component {
 		this.setState({complete: true})
 	}
 
+	// Normalise module metadata - old modules are just an async to load the module group, new ones have proper metadata
+	/**
+	 * @template T extends (typeof import('../Module').default)[]
+	 * @param {UnloadedModuleMeta<T>|(() => Promise<T>)} meta
+	 * @returns {UnloadedModuleMeta<T>}
+	 */
+	normaliseModuleMeta(meta) {
+		// If meta is an object, it probably doesn't need adjusting
+		if (typeof meta === 'object') {
+			return meta
+		}
+
+		return {
+			modules: meta || (() => []),
+			description: null,
+			supportedPatches: null,
+			contributors: [],
+			changelog: [],
+		}
+	}
+
 	getParserResults() {
 		if (!this.resultCache) {
 			this.resultCache = this.state.parser.generateResults()
@@ -217,7 +240,6 @@ class Analyse extends Component {
 		const {
 			parser,
 			complete,
-			activeSegment,
 		} = this.state
 
 		// Still loading the parser or running the parse
@@ -236,71 +258,57 @@ class Analyse extends Component {
 		const job = JOBS[parser.player.type]
 		const results = this.getParserResults()
 
-		return <Container>
-			<Grid>
-				<Grid.Column mobile={16} computer={4}>
-					{job && <Header
-						className={[styles.header].join(' ')}
-						attached="top"
-					>
-						<JobIcon job={job} set={1}/>
-						<Header.Content>
-							<Trans id={job.i18n_id} defaults={job.name} />
-							<Header.Subheader>
-								<Trans id={ROLES[job.role].i18n_id} defaults={ROLES[job.role].name} />
-							</Header.Subheader>
-						</Header.Content>
-					</Header>}
-					<Header className={styles.header} attached={job? true : 'top'}>
-						<img src="https://secure.xivdb.com/img/ui/enemy.png" alt="Generic enemy icon"/>
-						<Header.Content>
-							{parser.fight.name}
-							<Header.Subheader>
-								{parser.fight.zoneName}
-							</Header.Subheader>
-						</Header.Content>
-					</Header>
-					<Menu vertical attached="bottom">
-						<Menu.Item as="a" href={this.getReportUrl()} target="_blank">
-							<img src={fflogsLogo} alt="FF Logs logo" className={styles.menuLogo}/>
-							<Trans id="core.analyse.view-on-fflogs">
-								View report on FF Logs
-							</Trans>
-						</Menu.Item>
-					</Menu>
-
-					{this.props.showMenu && <Sticky context={this.stickyContext.current} offset={60}>
-						<Menu vertical pointing secondary fluid>
-							{results.map((result, index) => <Menu.Item
-								// Menu.Item props
-								key={index}
-								active={activeSegment === index}
-								as={Scroll.Link}
-								// Scroll.Link props
-								to={result.name}
-								offset={-50}
-								smooth
-								spy
-								onSetActive={() => this.setState({activeSegment: index})}
-							>
-								<Trans id={result.i18n_id} defaults={result.name /* Doing manually so SUI doesn't modify my text */} />
-							</Menu.Item>)}
+		return <SegmentPositionProvider>
+			<Container>
+				<Grid>
+					<Grid.Column mobile={16} computer={4}>
+						{job && <Header
+							className={[styles.header].join(' ')}
+							attached="top"
+						>
+							<JobIcon job={job} set={1}/>
+							<Header.Content>
+								<Trans id={job.i18n_id} defaults={job.name} />
+								<Header.Subheader>
+									<Trans id={ROLES[job.role].i18n_id} defaults={ROLES[job.role].name} />
+								</Header.Subheader>
+							</Header.Content>
+						</Header>}
+						<Header className={styles.header} attached={job? true : 'top'}>
+							<img src="https://secure.xivdb.com/img/ui/enemy.png" alt="Generic enemy icon"/>
+							<Header.Content>
+								{parser.fight.name}
+								<Header.Subheader>
+									{parser.fight.zoneName}
+								</Header.Subheader>
+							</Header.Content>
+						</Header>
+						<Menu vertical attached="bottom">
+							<Menu.Item as="a" href={this.getReportUrl()} target="_blank">
+								<img src={fflogsLogo} alt="FF Logs logo" className={styles.menuLogo}/>
+								<Trans id="core.analyse.view-on-fflogs">
+									View report on FF Logs
+								</Trans>
+							</Menu.Item>
 						</Menu>
-					</Sticky>}
-				</Grid.Column>
 
-				<Grid.Column mobile={16} computer={12}>
-					<div ref={this.stickyContext} className={styles.resultsContainer}>
-						{results.map((result, index) =>
-							<Segment vertical as={Scroll.Element} name={result.name} key={index}>
-								<Header><Trans id={result.i18n_id} defaults={result.name} /></Header>
-								{result.markup}
-							</Segment>
-						)}
-					</div>
-				</Grid.Column>
-			</Grid>
-		</Container>
+						{this.props.showMenu &&
+							<Menu className={styles.sticky} vertical pointing secondary fluid>
+								{results.map((result, index) => <SegmentLinkItem
+									key={index}
+									index={index}
+									result={result}
+								/>)}
+							</Menu>
+						}
+					</Grid.Column>
+
+					<Grid.Column className={styles.resultsContainer} mobile={16} computer={12}>
+						{results.map((result, index) => <ResultSegment index={index} result={result} key={index}/>)}
+					</Grid.Column>
+				</Grid>
+			</Container>
+		</SegmentPositionProvider>
 	}
 }
 
