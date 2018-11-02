@@ -1,5 +1,4 @@
 // TODO: Track buff extenstion (Ex. Celestial Opposition)
-// TODO: Track different buffs overwriting each other (Ex. AST/SCH shields)
 
 import _ from 'lodash'
 
