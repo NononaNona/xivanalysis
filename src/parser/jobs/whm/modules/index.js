@@ -4,6 +4,7 @@ import Benison from './Benison'
 import Assize from './Assize'
 import Overheal from './Overheal'
 import Speedmod from './Speedmod'
+import BuffOverwrite from './BuffOverwrite'
 
 export default [
 	Gauge,
@@ -12,4 +13,5 @@ export default [
 	Benison,
 	Assize,
 	Speedmod,
+	BuffOverwrite,
 ]
