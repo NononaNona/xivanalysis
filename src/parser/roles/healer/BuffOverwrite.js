@@ -209,7 +209,8 @@ export default class BuffOverwrite extends Module {
 	}
 
 	_manageOverwrite(action, caster, targets, timestamp) {
-		const overwriteTargets = targets.filter(target => this._isOverwrite(target, action.buff.buff.id, timestamp))
+		const buffID = action.buff.buff.id
+		const overwriteTargets = targets.filter(target => this._isOverwrite(target, buffID, timestamp) || this._isConflict(target, action.buff))
 		if (overwriteTargets.length !== 0) {
 			this._addOverwrite(overwriteTargets, caster, action, timestamp)
 		}
@@ -256,5 +257,10 @@ export default class BuffOverwrite extends Module {
 		}
 
 		return true
+	}
+
+	_isConflict(target, buff) {
+		return buff.conflicts.some(conflict => this._isOverwrite(target, conflict.buff.id))
+
 	}
 }
