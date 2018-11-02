@@ -13,8 +13,6 @@ import JOBS from 'data/JOBS'
 
 import Module from 'parser/core/Module'
 
-import styles from './BuffOverwrite.css'
-
 // import ACTIONS from 'data/ACTIONS'
 // import STATUSES from 'data/STATUSES'
 
@@ -29,7 +27,7 @@ export default class BuffOverwrite extends Module {
 	static i18n_id = i18nMark('healer.buff-overwrite.title')
 	static dependencies = [
 		'combatants',
-		'aoe', // eslint-disable-line xivanalysis/no-unused-dependencies
+		// 'aoe', // eslint-disable-line xivanalysis/no-unused-dependencies
 	]
 
 	_actions = {}
@@ -109,10 +107,16 @@ export default class BuffOverwrite extends Module {
 		}
 
 		const panels = events.map(event => {
-			const title = <>{this.parser.formatTimestamp(event.timestamp)} - <ActionLink {...event.action.action} /> overwritten on <Plural value={event.targets.length} one="# target" other="# targets" /> - {this.parser.formatDuration(event.timeLost)} lost </>
+			let title = null
+			if (event.action.buff.buffMode === BUFF_MODES.OVERRIDE) {
+				title = <>{this.parser.formatTimestamp(event.timestamp)} - <ActionLink {...event.action.action} /> overwritten on <Plural value={event.targets.length} one="# target" other="# targets" /> - {this.parser.formatDuration(event.timeLost)} </>
+			} else {
+				title = <>{this.parser.formatTimestamp(event.timestamp)} - <ActionLink {...event.action.action} /> overwritten on <Plural value={event.targets.length} one="# target" other="# targets" /> </>
+			}
+
 			const targetList = <div><List bulleted relaxed>
 				{event.targets.map((target, index) => {
-					return <List.Item key={index}> <JobIcon job={JOBS[target.type]} className={styles.jobIcon} /> {target.name} </List.Item>
+					return <List.Item key={index}> <JobIcon job={JOBS[target.type]} /> {target.name} </List.Item>
 				})}
 			</List></div>
 
@@ -203,7 +207,7 @@ export default class BuffOverwrite extends Module {
 	}
 
 	_onRemoveBuff(event) {
-		if (this._buffsByPlayer[event.targetID]) {
+		if (this._buffsByPlayer.hasOwnProperty(event.targetID)) {
 			this._buffsByPlayer[event.targetID][event.ability.guid] = null
 		}
 	}
